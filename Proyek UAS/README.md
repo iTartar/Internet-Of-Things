@@ -36,7 +36,7 @@ Sensor Virtual (DHT22 + Door Switch)
   Aktuator Virtual (LED + Buzzer di Wokwi)
 ```
 
-![Diagram Arsitektur](image/diagram_arsitektur.png)
+![Diagram Arsitektur](image/arsitektur_cold_storage_v2.svg)
 
 ---
 
