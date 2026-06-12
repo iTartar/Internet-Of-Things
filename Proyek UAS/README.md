@@ -238,7 +238,7 @@ Klik komponen **DHT22** saat simulasi berjalan → akan muncul slider untuk meng
 ## 📁 Struktur File
 
 ```
-cold-storage-iot/
+Proyek UAS/
 │
 ├── Code Wokwi/
 │   ├── sketch.ino          # Kode ESP32 untuk Wokwi
