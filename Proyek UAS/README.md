@@ -87,7 +87,7 @@ Jika muncul versi (contoh: `v18.17.0`), berarti Node.js sudah terinstall dengan 
 Buka **Command Prompt** (tekan `Win + R` → ketik `cmd` → Enter), lalu jalankan:
 
 ```cmd
-npm install -g --unsafe-perm node-red
+npm install -g node-red
 ```
 
 Tunggu hingga proses selesai (sekitar 2-5 menit tergantung koneksi internet).
