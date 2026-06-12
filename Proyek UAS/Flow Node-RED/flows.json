@@ -1,0 +1,846 @@
+[
+    {
+        "id": "tab_cold_storage",
+        "type": "tab",
+        "label": "Cold Storage NRP 36",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "mqtt_in_telemetry",
+        "type": "mqtt in",
+        "z": "tab_cold_storage",
+        "name": "Terima Telemetry",
+        "topic": "iot/kelas/36/telemetry",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "mqtt_broker_hivemq",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 120,
+        "y": 100,
+        "wires": [
+            [
+                "parse_json"
+            ]
+        ]
+    },
+    {
+        "id": "parse_json",
+        "type": "json",
+        "z": "tab_cold_storage",
+        "name": "Parse JSON",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 290,
+        "y": 100,
+        "wires": [
+            [
+                "rule_engine",
+                "set_suhu",
+                "set_kelembaban",
+                "set_pintu",
+                "debug_in"
+            ]
+        ]
+    },
+    {
+        "id": "debug_in",
+        "type": "debug",
+        "z": "tab_cold_storage",
+        "name": "Debug Data Masuk",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 490,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "rule_engine",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Rule Engine (NRP 36)",
+        "func": "var suhu = msg.payload.suhu;\nvar kelembaban = msg.payload.kelembaban;\nvar pintu = msg.payload.pintu_terbuka;\n\n// Inisialisasi konteks\nif (!context.doorOpenTime) context.doorOpenTime = null;\n\nvar now = Date.now();\nvar status = 'NORMAL';\nvar kipas = false;\nvar buzzer = false;\nvar alarm = false;\nvar pesanAlarm = '';\n\n// Tracking pintu terbuka\nif (pintu) {\n    if (!context.doorOpenTime) context.doorOpenTime = now;\n} else {\n    context.doorOpenTime = null;\n}\nvar doorDurasi = (context.doorOpenTime) ? (now - context.doorOpenTime) : 0;\n\n// === RULE 1: Suhu > 34°C → kipas menyala ===\nif (suhu > 34) {\n    kipas = true;\n    status = 'WASPADA';\n}\n\n// === RULE 2: Suhu <= 28°C → kipas mati ===\nif (suhu <= 28) {\n    kipas = false;\n}\n\n// === RULE 3: Pintu terbuka > 30 detik → buzzer + alarm BAHAYA ===\nif (doorDurasi > 30000) {\n    buzzer = true;\n    status = 'BAHAYA';\n    alarm = true;\n    pesanAlarm = 'Pintu terbuka lebih dari 30 detik!';\n}\n\n// === RULE 4: Suhu > 34°C DAN pintu terbuka → KRITIS ===\nif (suhu > 34 && pintu) {\n    kipas = true;\n    buzzer = true;\n    status = 'BAHAYA';\n    alarm = true;\n    pesanAlarm = 'KRITIS: Suhu tinggi + pintu terbuka!';\n}\n\n// === RULE 5 (NRP 36): Suhu > 34°C DAN kelembaban > 46% ===\nif (suhu > 34 && kelembaban > 46) {\n    kipas = true;\n    if (status === 'NORMAL') status = 'WASPADA';\n    alarm = true;\n    pesanAlarm = 'Kombinasi suhu > 34C + kelembaban > 46%!';\n}\n\n// === RULE 6: Sensor error ===\nif (isNaN(suhu) || isNaN(kelembaban) || suhu < -50 || suhu > 85) {\n    status = 'SENSOR_ERROR';\n    kipas = false;\n    buzzer = false;\n    alarm = true;\n    pesanAlarm = 'Nilai sensor tidak valid!';\n}\n\n// Kembali normal\nif (suhu <= 28 && !pintu && doorDurasi === 0) {\n    status = 'NORMAL';\n    buzzer = false;\n    alarm = false;\n}\n\n// Set flow context untuk dashboard\nflow.set('suhu', suhu);\nflow.set('kelembaban', kelembaban);\nflow.set('status', status);\nflow.set('pintu', pintu ? 'TERBUKA' : 'TERTUTUP');\nflow.set('kipas', kipas ? 'ON' : 'OFF');\nflow.set('buzzer', buzzer ? 'ON' : 'OFF');\n\nmsg.payload = {\n    suhu: suhu,\n    kelembaban: kelembaban,\n    status: status,\n    pintu: pintu ? 'TERBUKA' : 'TERTUTUP',\n    kipas: kipas,\n    buzzer: buzzer,\n    alarm: alarm,\n    pesanAlarm: pesanAlarm,\n    timestamp: new Date().toLocaleString('id-ID')\n};\n\nmsg.kipas = kipas;\nmsg.buzzer = buzzer;\nmsg.alarm = alarm;\nmsg.pesanAlarm = pesanAlarm;\nmsg.status = status;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 470,
+        "y": 100,
+        "wires": [
+            [
+                "route_kipas",
+                "route_buzzer",
+                "route_alarm",
+                "set_status",
+                "set_status_text"
+            ]
+        ]
+    },
+    {
+        "id": "route_kipas",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Route Kipas",
+        "func": "var out = {payload: msg.payload.kipas ? 'ON' : 'OFF'};\nreturn out;",
+        "outputs": 1,
+        "x": 730,
+        "y": 80,
+        "wires": [
+            [
+                "mqtt_out_kipas",
+                "ui_kipas_status"
+            ]
+        ]
+    },
+    {
+        "id": "route_buzzer",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Route Buzzer",
+        "func": "var out = {payload: msg.payload.buzzer ? 'ON' : 'OFF'};\nreturn out;",
+        "outputs": 1,
+        "x": 730,
+        "y": 140,
+        "wires": [
+            [
+                "mqtt_out_buzzer",
+                "ui_buzzer_status"
+            ]
+        ]
+    },
+    {
+        "id": "route_alarm",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Route Alarm",
+        "func": "if (msg.payload.alarm) {\n    var out = {\n        payload: JSON.stringify({\n            alarm: true,\n            pesan: msg.payload.pesanAlarm,\n            timestamp: msg.payload.timestamp\n        })\n    };\n    return out;\n}\nreturn null;",
+        "outputs": 1,
+        "x": 730,
+        "y": 200,
+        "wires": [
+            [
+                "mqtt_out_alarm",
+                "ui_notif"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out_kipas",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Publish Kipas",
+        "topic": "iot/kelas/36/aktuator/kipas",
+        "qos": "0",
+        "retain": false,
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_hivemq",
+        "x": 980,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "mqtt_out_buzzer",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Publish Buzzer",
+        "topic": "iot/kelas/36/aktuator/buzzer",
+        "qos": "0",
+        "retain": false,
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_hivemq",
+        "x": 980,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "mqtt_out_alarm",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Publish Alarm",
+        "topic": "iot/kelas/36/alarm",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt_broker_hivemq",
+        "x": 980,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "mqtt_out_status",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Publish Status",
+        "topic": "iot/kelas/36/status",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt_broker_hivemq",
+        "x": 980,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "set_status",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Format Status",
+        "func": "msg.payload = JSON.stringify({\n    status: msg.payload.status,\n    device_id: 'NRP36',\n    timestamp: msg.payload.timestamp\n});\nreturn msg;",
+        "outputs": 1,
+        "x": 730,
+        "y": 260,
+        "wires": [
+            [
+                "mqtt_out_status"
+            ]
+        ]
+    },
+    {
+        "id": "set_suhu",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Set Suhu",
+        "func": "msg.payload = msg.payload.suhu;\nreturn msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 160,
+        "wires": [
+            [
+                "ui_gauge_suhu",
+                "ui_chart_suhu"
+            ]
+        ]
+    },
+    {
+        "id": "set_kelembaban",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Set Kelembaban",
+        "func": "msg.payload = msg.payload.kelembaban;\nreturn msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 220,
+        "wires": [
+            [
+                "ui_gauge_kelembaban",
+                "ui_chart_kelembaban"
+            ]
+        ]
+    },
+    {
+        "id": "set_pintu",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Set Pintu",
+        "func": "msg.payload = msg.payload.pintu_terbuka ? 'TERBUKA' : 'TERTUTUP';\nreturn msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 280,
+        "wires": [
+            [
+                "ui_pintu_status"
+            ]
+        ]
+    },
+    {
+        "id": "set_status_text",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Set Status Text",
+        "func": "msg.payload = msg.payload.status;\nreturn msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 340,
+        "wires": [
+            [
+                "ui_status_text"
+            ]
+        ]
+    },
+    {
+        "id": "ui_gauge_suhu",
+        "type": "ui_gauge",
+        "z": "tab_cold_storage",
+        "name": "Gauge Suhu",
+        "group": "ui_group_sensor",
+        "order": 1,
+        "width": "3",
+        "height": "3",
+        "gtype": "gage",
+        "title": "Suhu (°C)",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": "-10",
+        "max": "60",
+        "colors": [
+            "#00b4d8",
+            "#f4d35e",
+            "#e63946"
+        ],
+        "seg1": "28",
+        "seg2": "34",
+        "diff": false,
+        "className": "",
+        "x": 520,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_kelembaban",
+        "type": "ui_gauge",
+        "z": "tab_cold_storage",
+        "name": "Gauge Kelembaban",
+        "group": "ui_group_sensor",
+        "order": 2,
+        "width": "3",
+        "height": "3",
+        "gtype": "gage",
+        "title": "Kelembaban (%)",
+        "label": "%",
+        "format": "{{value}}",
+        "min": "0",
+        "max": "100",
+        "colors": [
+            "#00b4d8",
+            "#f4d35e",
+            "#e63946"
+        ],
+        "seg1": "46",
+        "seg2": "80",
+        "className": "",
+        "x": 520,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "ui_pintu_status",
+        "type": "ui_text",
+        "z": "tab_cold_storage",
+        "group": "ui_group_status",
+        "order": 1,
+        "width": "3",
+        "height": "1",
+        "name": "Status Pintu",
+        "label": "Status Pintu",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 530,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "ui_status_text",
+        "type": "ui_text",
+        "z": "tab_cold_storage",
+        "group": "ui_group_status",
+        "order": 2,
+        "width": "3",
+        "height": "1",
+        "name": "Status Sistem",
+        "label": "Status Sistem",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 530,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "ui_kipas_status",
+        "type": "ui_text",
+        "z": "tab_cold_storage",
+        "group": "ui_group_status",
+        "order": 3,
+        "width": "3",
+        "height": "1",
+        "name": "Status Kipas",
+        "label": "Kipas",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 980,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "ui_buzzer_status",
+        "type": "ui_text",
+        "z": "tab_cold_storage",
+        "group": "ui_group_status",
+        "order": 4,
+        "width": "3",
+        "height": "1",
+        "name": "Status Buzzer",
+        "label": "Buzzer",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "className": "",
+        "x": 980,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "ui_notif",
+        "type": "ui_toast",
+        "z": "tab_cold_storage",
+        "position": "top right",
+        "displayTime": "5",
+        "highlight": "",
+        "sendall": true,
+        "outputs": 0,
+        "ok": "OK",
+        "cancel": "",
+        "raw": false,
+        "className": "",
+        "name": "Notifikasi Alarm",
+        "x": 990,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "ui_btn_kipas_on",
+        "type": "ui_button",
+        "z": "tab_cold_storage",
+        "name": "Tombol Kipas ON",
+        "group": "ui_group_aktuator",
+        "order": 1,
+        "width": "3",
+        "height": "1",
+        "passthru": false,
+        "label": "Kipas ON",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#27ae60",
+        "className": "",
+        "icon": "",
+        "payload": "ON",
+        "payloadType": "str",
+        "topic": "iot/kelas/36/aktuator/kipas",
+        "topicType": "str",
+        "x": 570,
+        "y": 540,
+        "wires": [
+            [
+                "mqtt_out_manual_kipas",
+                "f693d7d464c0521f"
+            ]
+        ]
+    },
+    {
+        "id": "ui_btn_kipas_off",
+        "type": "ui_button",
+        "z": "tab_cold_storage",
+        "name": "Tombol Kipas OFF",
+        "group": "ui_group_aktuator",
+        "order": 2,
+        "width": "3",
+        "height": "1",
+        "passthru": false,
+        "label": "Kipas OFF",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#e74c3c",
+        "className": "",
+        "icon": "",
+        "payload": "OFF",
+        "payloadType": "str",
+        "topic": "iot/kelas/36/aktuator/kipas",
+        "topicType": "str",
+        "x": 570,
+        "y": 600,
+        "wires": [
+            [
+                "mqtt_out_manual_kipas",
+                "d374b122abc00c6f"
+            ]
+        ]
+    },
+    {
+        "id": "ui_btn_buzzer_on",
+        "type": "ui_button",
+        "z": "tab_cold_storage",
+        "name": "Tombol Buzzer ON",
+        "group": "ui_group_aktuator",
+        "order": 3,
+        "width": "3",
+        "height": "1",
+        "passthru": false,
+        "label": "Buzzer ON",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#27ae60",
+        "className": "",
+        "icon": "",
+        "payload": "ON",
+        "payloadType": "str",
+        "topic": "iot/kelas/36/aktuator/buzzer",
+        "topicType": "str",
+        "x": 570,
+        "y": 700,
+        "wires": [
+            [
+                "mqtt_out_manual_buzzer",
+                "0afa681d041bea1b"
+            ]
+        ]
+    },
+    {
+        "id": "ui_btn_buzzer_off",
+        "type": "ui_button",
+        "z": "tab_cold_storage",
+        "name": "Tombol Buzzer OFF",
+        "group": "ui_group_aktuator",
+        "order": 4,
+        "width": "3",
+        "height": "1",
+        "passthru": false,
+        "label": "Buzzer OFF",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#e74c3c",
+        "className": "",
+        "icon": "",
+        "payload": "OFF",
+        "payloadType": "str",
+        "topic": "iot/kelas/36/aktuator/buzzer",
+        "topicType": "str",
+        "x": 560,
+        "y": 760,
+        "wires": [
+            [
+                "mqtt_out_manual_buzzer",
+                "6ab5d025917f1b47"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out_manual_kipas",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Manual Kipas",
+        "topic": "",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt_broker_hivemq",
+        "x": 860,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "mqtt_out_manual_buzzer",
+        "type": "mqtt out",
+        "z": "tab_cold_storage",
+        "name": "Manual Buzzer",
+        "topic": "",
+        "qos": "0",
+        "retain": false,
+        "broker": "mqtt_broker_hivemq",
+        "x": 860,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "ui_chart_suhu",
+        "type": "ui_chart",
+        "z": "tab_cold_storage",
+        "name": "Grafik Suhu",
+        "group": "ui_group_chart",
+        "order": 1,
+        "width": "6",
+        "height": "4",
+        "label": "Histori Suhu (°C)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "Menunggu data...",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "10",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "60",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#e63946",
+            "#457b9d",
+            "#2a9d8f",
+            "#e9c46a",
+            "#f4a261",
+            "#264653",
+            "#6d6875",
+            "#b5838d",
+            "#e5989b"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 530,
+        "y": 440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ui_chart_kelembaban",
+        "type": "ui_chart",
+        "z": "tab_cold_storage",
+        "name": "Grafik Kelembaban",
+        "group": "ui_group_chart",
+        "order": 2,
+        "width": "6",
+        "height": "4",
+        "label": "Histori Kelembaban (%)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "Menunggu data...",
+        "dot": false,
+        "ymin": "0",
+        "ymax": "100",
+        "removeOlder": "10",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "60",
+        "cutout": 0,
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#457b9d",
+            "#e63946",
+            "#2a9d8f",
+            "#e9c46a",
+            "#f4a261",
+            "#264653",
+            "#6d6875",
+            "#b5838d",
+            "#e5989b"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 550,
+        "y": 480,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f693d7d464c0521f",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Status Update Kipas ON",
+        "func": "msg.payload = \"ON\";\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 730,
+        "y": 300,
+        "wires": [
+            [
+                "ui_kipas_status"
+            ]
+        ]
+    },
+    {
+        "id": "d374b122abc00c6f",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Status Update Kipas OFF",
+        "func": "msg.payload = \"OFF\";\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 730,
+        "y": 360,
+        "wires": [
+            [
+                "ui_kipas_status"
+            ]
+        ]
+    },
+    {
+        "id": "0afa681d041bea1b",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Status Update Buzzer ON",
+        "func": "msg.payload = \"ON\";\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 830,
+        "y": 480,
+        "wires": [
+            [
+                "ui_buzzer_status"
+            ]
+        ]
+    },
+    {
+        "id": "6ab5d025917f1b47",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "Status Update Buzzer OFF",
+        "func": "msg.payload = \"OFF\";\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 860,
+        "y": 660,
+        "wires": [
+            [
+                "ui_buzzer_status"
+            ]
+        ]
+    },
+    {
+        "id": "6704dffbe5d31967",
+        "type": "mqtt in",
+        "z": "tab_cold_storage",
+        "name": "status error",
+        "topic": "iot/kelas/36/status",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "mqtt_broker_hivemq",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 400,
+        "wires": [
+            [
+                "82287c6fcc0d152c"
+            ]
+        ]
+    },
+    {
+        "id": "82287c6fcc0d152c",
+        "type": "function",
+        "z": "tab_cold_storage",
+        "name": "",
+        "func": "if (typeof msg.payload === 'object') {\n    msg.payload = msg.payload.status;\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 260,
+        "y": 480,
+        "wires": [
+            [
+                "ui_status_text"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_broker_hivemq",
+        "type": "mqtt-broker",
+        "name": "HiveMQ Public",
+        "broker": "broker.hivemq.com",
+        "port": "1883",
+        "clientid": "nodered_cold36",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "ui_group_sensor",
+        "type": "ui_group",
+        "name": "Sensor Data",
+        "tab": "ui_tab_main",
+        "order": 1,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_status",
+        "type": "ui_group",
+        "name": "Status Sistem",
+        "tab": "ui_tab_main",
+        "order": 2,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_aktuator",
+        "type": "ui_group",
+        "name": "Kendali Manual Aktuator",
+        "tab": "ui_tab_main",
+        "order": 3,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_group_chart",
+        "type": "ui_group",
+        "name": "Grafik Histori",
+        "tab": "ui_tab_main",
+        "order": 4,
+        "disp": true,
+        "width": "12",
+        "collapse": false
+    },
+    {
+        "id": "ui_tab_main",
+        "type": "ui_tab",
+        "name": "Cold Storage NRP 36",
+        "icon": "dashboard",
+        "order": 1
+    },
+    {
+        "id": "7cbfed13b94075fc",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-dashboard": "3.6.6"
+        }
+    }
+]
